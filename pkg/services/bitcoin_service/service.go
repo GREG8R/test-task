@@ -1,26 +1,70 @@
 package bitcoin_service
 
 import (
-	"fmt"
+	"context"
+	"time"
+
+	"btcn_srv/pkg/pg_storage"
+
+	"github.com/shopspring/decimal"
 )
 
-// StringService provides operations on strings.
 type BitcoinService interface {
-	SendMoney(interface{}) (string, error)
-	GetHistory(interface{}) []GetHistoryResponse
+	SendMoney(ctx context.Context, request interface{}) error
+	GetHistory(ctx context.Context, request interface{}) ([]GetHistoryResponse, error)
 }
 
-type BtcnService struct{}
-
-func (BtcnService) SendMoney(s interface{}) (string, error) {
-	req := s.(SendMoneyRequest)
-
-	fmt.Print(req)
-
-	return "", nil
+type BtcnService struct {
+	Storage pg_storage.PgStorage
 }
 
-func (BtcnService) GetHistory(s interface{}) []GetHistoryResponse {
+type SendMoneyRequest struct {
+	Amount decimal.Decimal `json:"amount"`
+	Date   time.Time       `json:"datetime"`
+}
 
-	return nil
+type SendMoneyResponse struct {
+	Body string `json:"body,omitempty"`
+	Err  string `json:"err,omitempty"`
+}
+
+type GetHistoryRequest struct {
+	StartDate time.Time `json:"startDatetime"`
+	EndDate   time.Time `json:"endDatetime"`
+}
+
+type GetHistoryResponse struct {
+	Amount decimal.Decimal `json:"amount"`
+	Date   time.Time       `json:"datetime"`
+}
+
+func (s BtcnService) SendMoney(ctx context.Context, request interface{}) error {
+	req := request.(SendMoneyRequest)
+
+	// save all dates like UTC
+	err := s.Storage.SaveMoney(ctx, req.Amount, req.Date.UTC())
+
+	return err
+}
+
+func (s BtcnService) GetHistory(ctx context.Context, request interface{}) ([]GetHistoryResponse, error) {
+	var response []GetHistoryResponse
+	req := request.(GetHistoryRequest)
+
+	// get all dates by UTC
+	result, err := s.Storage.GetHistory(ctx, req.StartDate.UTC(), req.EndDate.UTC())
+	if err != nil {
+		return nil, err
+	}
+
+	// get location by date from request
+	loc := req.StartDate.Location()
+	for _, r := range result {
+		response = append(response, GetHistoryResponse{
+			Amount: r.Amount,
+			Date:   r.Hour.In(loc),
+		})
+	}
+
+	return response, nil
 }

@@ -4,16 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"time"
-
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/transport"
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/gorilla/mux"
-	"github.com/shopspring/decimal"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"net/http"
 )
+
+var (
+	ErrErrorParseRequest = errors.New("can't parse request")
+	ErrNegativeAmount    = errors.New("can't get negative amount")
+	ErrStartDateLater    = errors.New("start date should be earlier than end date")
+)
+
+type errorer interface {
+	error() error
+}
 
 func MakeHTTPHandler(svc BitcoinService, logger log.Logger) http.Handler {
 	r := mux.NewRouter()
@@ -22,14 +30,30 @@ func MakeHTTPHandler(svc BitcoinService, logger log.Logger) http.Handler {
 		httptransport.ServerErrorEncoder(encodeError),
 	}
 
-	// POST    /send
-	// GET     /history
+	// POST /send
+	// example:
+	//curl --location --request POST 'localhost:8080/send' \
+	//--header 'Content-Type: application/json' \
+	//--data-raw '{
+	//    "datetime": "2019-10-05T14:48:01+01:00",
+	//    "amount": 1.2
+	//}'
 	r.Methods("POST").Path("/send").Handler(httptransport.NewServer(
 		MakeSendMoneyEndpoint(svc),
 		DecodeSendMoneyRequest,
 		EncodeResponse,
 		options...,
 	))
+
+	// GET /history
+	// example:
+	//curl --location --request GET 'localhost:8080/history' \
+	//--header 'Content-Type: application/json' \
+	//--data-raw '{
+	//    "startDatetime": "2019-10-05T13:48:01+01:00",
+	//    "endDatetime": "2019-10-05T15:48:01+01:00"
+	//}
+	//'
 	r.Methods("GET").Path("/history").Handler(httptransport.NewServer(
 		MakeGetHistoryEndpoint(svc),
 		DecodeGetHistoryRequest,
@@ -37,38 +61,27 @@ func MakeHTTPHandler(svc BitcoinService, logger log.Logger) http.Handler {
 		options...,
 	))
 
+	// GET /metrict
+	// example:
+	// curl --location --request GET 'localhost:8080/metrics'
+	r.Methods("GET").Path("/metrics").Handler(promhttp.Handler())
+
 	return r
 }
 
 func MakeSendMoneyEndpoint(svc BitcoinService) endpoint.Endpoint {
-	return func(_ context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(SendMoneyRequest)
-
-		err := sendMoneyValidation(req)
-		if err != nil {
-			return nil, err
-		}
-
-		v, err := svc.SendMoney(req)
-		if err != nil {
-			return nil, err
-		}
-
-		return SendMoneyResponse{v, ""}, nil
+		err := svc.SendMoney(ctx, req)
+		return nil, err
 	}
 }
 
 func MakeGetHistoryEndpoint(svc BitcoinService) endpoint.Endpoint {
-	return func(_ context.Context, request interface{}) (interface{}, error) {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(GetHistoryRequest)
-
-		err := getHistoryValidation(req)
-		if err != nil {
-			return nil, err
-		}
-
-		response := svc.GetHistory(req)
-		return response, nil
+		response, err := svc.GetHistory(ctx, req)
+		return response, err
 	}
 }
 
@@ -77,6 +90,12 @@ func DecodeSendMoneyRequest(_ context.Context, r *http.Request) (interface{}, er
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		return nil, ErrErrorParseRequest
 	}
+
+	err := sendMoneyValidation(request)
+	if err != nil {
+		return nil, err
+	}
+
 	return request, nil
 }
 
@@ -85,11 +104,13 @@ func DecodeGetHistoryRequest(_ context.Context, r *http.Request) (interface{}, e
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		return nil, ErrErrorParseRequest
 	}
-	return request, nil
-}
 
-type errorer interface {
-	error() error
+	err := getHistoryValidation(request)
+	if err != nil {
+		return nil, err
+	}
+
+	return request, nil
 }
 
 func EncodeResponse(ctx context.Context, w http.ResponseWriter, response interface{}) error {
@@ -103,26 +124,6 @@ func EncodeResponse(ctx context.Context, w http.ResponseWriter, response interfa
 	return json.NewEncoder(w).Encode(response)
 }
 
-type SendMoneyRequest struct {
-	Amount decimal.Decimal `json:"amount"`
-	Date   time.Time       `json:"datetime"`
-}
-
-type SendMoneyResponse struct {
-	Body string `json:"body,omitempty"`
-	Err  string `json:"err,omitempty"`
-}
-
-type GetHistoryRequest struct {
-	StartDate time.Time `json:"startDatetime"`
-	EndDate   time.Time `json:"endDatetime"`
-}
-
-type GetHistoryResponse struct {
-	Amount decimal.Decimal `json:"amount"`
-	Date   time.Time       `json:"datetime"`
-}
-
 func encodeError(_ context.Context, err error, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(codeFrom(err))
@@ -130,12 +131,6 @@ func encodeError(_ context.Context, err error, w http.ResponseWriter) {
 		"error": err.Error(),
 	})
 }
-
-var (
-	ErrErrorParseRequest = errors.New("can't parse request")
-	ErrNegativeAmount    = errors.New("can't get negative amount")
-	ErrStartDateLater    = errors.New("start date should be earlier than end date")
-)
 
 func codeFrom(err error) int {
 	switch err {
@@ -148,18 +143,4 @@ func codeFrom(err error) int {
 	default:
 		return http.StatusInternalServerError
 	}
-}
-
-func sendMoneyValidation(req SendMoneyRequest) error {
-	if req.Amount.IsNegative() {
-		return ErrNegativeAmount
-	}
-	return nil
-}
-
-func getHistoryValidation(req GetHistoryRequest) error {
-	if req.EndDate.UTC().Nanosecond() < req.StartDate.UTC().Nanosecond() {
-		return ErrStartDateLater
-	}
-	return nil
 }

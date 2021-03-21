@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"btcn_srv/pkg/services/bitcoin_service"
@@ -13,31 +15,31 @@ type loggingMiddleware struct {
 	next   bitcoin_service.BitcoinService
 }
 
-func (mw loggingMiddleware) SendMoney(s interface{}) (output string, err error) {
+func (mw loggingMiddleware) SendMoney(ctx context.Context, request interface{}) (err error) {
 	defer func(begin time.Time) {
 		_ = mw.logger.Log(
 			"method", "SendMoney",
-			"input", s,
-			"output", output,
-			"err", err,
+			"input", fmt.Sprint(request),
+			"error", err,
 			"took", time.Since(begin),
 		)
 	}(time.Now())
 
-	output, err = mw.next.SendMoney(s)
+	err = mw.next.SendMoney(ctx, request)
 	return
 }
 
-func (mw loggingMiddleware) GetHistory(s interface{}) (n []bitcoin_service.GetHistoryResponse) {
+func (mw loggingMiddleware) GetHistory(ctx context.Context, request interface{}) (resp []bitcoin_service.GetHistoryResponse, err error) {
 	defer func(begin time.Time) {
 		_ = mw.logger.Log(
 			"method", "GetHistory",
-			"input", s,
-			"n", n,
+			"input", fmt.Sprint(request),
+			"response", fmt.Sprint(resp),
+			"error", err,
 			"took", time.Since(begin),
 		)
 	}(time.Now())
 
-	n = mw.next.GetHistory(s)
+	resp, err = mw.next.GetHistory(ctx, request)
 	return
 }
