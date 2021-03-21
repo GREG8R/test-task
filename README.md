@@ -1,5 +1,5 @@
 # test-task
-this is repository for test task - api for getting transactions and show history by hours.
+this is repository for test task - api for sending money transactions from different users and showing history by hours.
 
 How to launch server:
 1) clone repository to your local computer
