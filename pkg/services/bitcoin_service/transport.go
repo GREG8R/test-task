@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"time"
+
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/transport"
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"net/http"
+	"github.com/shopspring/decimal"
 )
 
 var (
@@ -21,6 +24,25 @@ var (
 
 type errorer interface {
 	error() error
+}
+
+type SendMoneyRequest struct {
+	Amount decimal.Decimal `json:"amount"`
+	Date   time.Time       `json:"datetime"`
+}
+
+type SendMoneyResponse struct {
+	Response string `json:"response,omitempty"`
+}
+
+type GetHistoryRequest struct {
+	StartDate time.Time `json:"startDatetime"`
+	EndDate   time.Time `json:"endDatetime"`
+}
+
+type GetHistoryResponse struct {
+	Amount decimal.Decimal `json:"amount"`
+	Date   time.Time       `json:"datetime"`
 }
 
 func MakeHTTPHandler(svc BitcoinService, logger log.Logger) http.Handler {
@@ -73,7 +95,10 @@ func MakeSendMoneyEndpoint(svc BitcoinService) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(SendMoneyRequest)
 		err := svc.SendMoney(ctx, req)
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
+		return SendMoneyResponse{"success"}, err
 	}
 }
 

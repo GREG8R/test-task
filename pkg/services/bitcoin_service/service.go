@@ -2,11 +2,8 @@ package bitcoin_service
 
 import (
 	"context"
-	"time"
 
 	"btcn_srv/pkg/pg_storage"
-
-	"github.com/shopspring/decimal"
 )
 
 type BitcoinService interface {
@@ -16,26 +13,6 @@ type BitcoinService interface {
 
 type BtcnService struct {
 	Storage pg_storage.PgStorage
-}
-
-type SendMoneyRequest struct {
-	Amount decimal.Decimal `json:"amount"`
-	Date   time.Time       `json:"datetime"`
-}
-
-type SendMoneyResponse struct {
-	Body string `json:"body,omitempty"`
-	Err  string `json:"err,omitempty"`
-}
-
-type GetHistoryRequest struct {
-	StartDate time.Time `json:"startDatetime"`
-	EndDate   time.Time `json:"endDatetime"`
-}
-
-type GetHistoryResponse struct {
-	Amount decimal.Decimal `json:"amount"`
-	Date   time.Time       `json:"datetime"`
 }
 
 func (s BtcnService) SendMoney(ctx context.Context, request interface{}) error {
